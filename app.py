@@ -136,27 +136,20 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Metiers_ROME") -> bytes:
 # ── Référentiel ROME (pour l'extraction complète) ─────────────────────────────
 
 def get_all_rome_codes():
-    """Récupère tous les codes ROME disponibles via l'API rome-metiers."""
+    """Récupère la liste de tous les codes ROME existants."""
     token   = get_token()
     headers = {"Authorization": f"Bearer {token}"}
-    url     = f"{API_BASE}/v1/metiers"
-    # L'endpoint renvoie la liste paginée ; on itère jusqu'à la fin
-    codes  = []
-    params = {"champs": "code", "nombre": 200, "debut": 0}
-    while True:
-        r = requests.get(url, headers=headers, params=params)
-        r.raise_for_status()
-        data  = r.json()
-        items = data if isinstance(data, list) else data.get("metiers", data.get("results", []))
-        if not items:
-            break
-        for item in items:
-            code = item.get("code") if isinstance(item, dict) else item
-            if code:
-                codes.append(code)
-        if len(items) < params["nombre"]:
-            break
-        params["debut"] += params["nombre"]
+    url     = f"{API_BASE}/v1/metiers/metier"
+    r = requests.get(url, headers=headers)
+    r.raise_for_status()
+    data = r.json()
+    # L'API renvoie soit une liste directe, soit un objet avec une clé
+    items = data if isinstance(data, list) else data.get("metiers", data.get("results", []))
+    codes = []
+    for item in items:
+        code = item.get("code") if isinstance(item, dict) else item
+        if code:
+            codes.append(code)
     return codes
 
 
@@ -296,7 +289,7 @@ with tab_all:
     st.markdown(
         "Cet onglet récupère **tous les codes ROME** exposés par l'API, "
         "puis interroge chaque fiche métier pour en extraire les conditions de travail, "
-        "les horaires et le statut FIPU. L'opération peut prendre plusieurs minutes."
+        "les horaires et le statut FIPU. Sa peut être très long."
     )
 
     if "stop_full" not in st.session_state:
@@ -308,9 +301,9 @@ with tab_all:
 
     col1, col2 = st.columns(2)
     with col1:
-        start_full = st.button("🚀 Lancer l'extraction complète", key="btn_start_full")
+        start_full = st.button("Lancer l'extraction complète", key="btn_start_full")
     with col2:
-        stop_full = st.button("⛔ STOP", type="primary", key="btn_stop_full")
+        stop_full = st.button("STOP", type="primary", key="btn_stop_full")
 
     if stop_full:
         st.session_state.stop_full = True
