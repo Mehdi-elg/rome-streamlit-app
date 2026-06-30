@@ -18,9 +18,6 @@ if 'search_done' not in st.session_state:
     st.session_state.statuts = []
     st.session_state.codes_list = []
 
-
-# ── Auth ──────────────────────────────────────────────────────────────────────
-
 def get_token():
     data = {
         "grant_type":    "client_credentials",
@@ -31,9 +28,6 @@ def get_token():
     r = requests.post(TOKEN_URL, data=data)
     r.raise_for_status()
     return r.json()["access_token"]
-
-
-# ── ROME métier ───────────────────────────────────────────────────────────────
 
 def get_metier(code_rome):
     token = get_token()
@@ -132,18 +126,13 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Metiers_ROME") -> bytes:
     buf.seek(0)
     return buf.getvalue()
 
-
-# ── Référentiel ROME (pour l'extraction complète) ─────────────────────────────
-
 def get_all_rome_codes():
-    """Récupère la liste de tous les codes ROME existants."""
     token   = get_token()
     headers = {"Authorization": f"Bearer {token}"}
     url     = f"{API_BASE}/v1/metiers/metier"
     r = requests.get(url, headers=headers)
     r.raise_for_status()
     data = r.json()
-    # L'API renvoie soit une liste directe, soit un objet avec une clé
     items = data if isinstance(data, list) else data.get("metiers", data.get("results", []))
     codes = []
     for item in items:
@@ -152,18 +141,15 @@ def get_all_rome_codes():
             codes.append(code)
     return codes
 
-
-# ── UI ────────────────────────────────────────────────────────────────────────
-
 st.title("🔎 Recherche Multi-Métiers ROME")
 
 tab_list, tab_all = st.tabs(
     ["Recherche par liste de codes ROME", "Extraction complète (tous les ROME)"]
 )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ONGLET 1 — Recherche ciblée (code d'origine, inchangé)
-# ══════════════════════════════════════════════════════════════════════════════
+
+# ONGLET 1 — Recherche ciblée
+
 with tab_list:
     st.markdown("**Entrez plusieurs codes ROME (1 par ligne) et consultez les résultats détaillés**")
 
@@ -281,9 +267,9 @@ with tab_list:
         st.code("A1413\nM1805\nH1203\nK2110", language="text")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ONGLET 2 — Extraction complète (tous les ROME disponibles)
-# ══════════════════════════════════════════════════════════════════════════════
+# ONGLET 2 — Extraction complète
+
+
 with tab_all:
     st.subheader("Extraction complète de tous les métiers ROME disponibles")
     st.markdown(
@@ -355,7 +341,6 @@ with tab_all:
                 f"Extraction terminée ou stoppée — {nb_ok} métiers récupérés, {nb_err} erreurs."
             )
 
-    # Affichage des résultats persistants
     df_all_fipu = st.session_state.df_all_fipu
     statuts_all = st.session_state.statuts_all
 
