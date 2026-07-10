@@ -325,21 +325,22 @@ with tab_all:
         st.session_state.statuts_all        = []
         st.session_state.metiers_data_all   = []
         st.session_state.all_codes          = []
+        
+        st.rerun()  # Force le rafraîchissement pour activer le bouton STOP
 
-        st.rerun()
-
-
+    # Récupération des codes ROME si l'extraction est en cours et qu'on n'a pas encore les codes
     if st.session_state.extraction_en_cours and not st.session_state.all_codes:
         try:
             with st.spinner("Récupération de la liste de tous les codes ROME…"):
                 st.session_state.all_codes = get_all_rome_codes()
-                # Pas de st.rerun() ici, on continue sur la boucle plus bas
+            st.rerun()  # Redémarre pour lancer la boucle de traitement
         except Exception as e:
             st.error(f"Erreur lors de la récupération des codes ROME : {e}")
             st.session_state.extraction_en_cours = False
-            st.rerun()  # <-- AJOUTÉ : pour réafficher l'interface avec le bouton START réactivé
+            st.session_state.df_all_fipu = pd.DataFrame()  # DataFrame vide
+            st.rerun()
 
-    # Boucle de traitement (s'exécute tant que l'extraction est en cours)
+    # Boucle de traitement (s'exécute tant que l'extraction est en cours et que les codes sont chargés)
     if st.session_state.extraction_en_cours and st.session_state.all_codes:
         all_codes = st.session_state.all_codes
         total     = len(all_codes)
@@ -354,6 +355,15 @@ with tab_all:
                 st.session_state.extraction_en_cours = False
                 st.session_state.stop_full = False
                 progress_text_full.text(f"⛔ Arrêté à {i} / {total} codes traités.")
+                
+                # Construction du DataFrame partiel
+                metiers_data = st.session_state.metiers_data_all
+                df_all_fipu  = create_enriched_df(metiers_data) if metiers_data else pd.DataFrame()
+                st.session_state.df_all_fipu = df_all_fipu
+                nb_ok  = sum(1 for s in st.session_state.statuts_all if s.get('success'))
+                nb_err = len(st.session_state.statuts_all) - nb_ok
+                
+                st.rerun()  # Rafraîchit pour afficher les résultats partiels
                 break
 
             code_rome = all_codes[i]
@@ -380,9 +390,8 @@ with tab_all:
             # Boucle terminée normalement (pas de break)
             st.session_state.extraction_en_cours = False
             st.session_state.extraction_done     = True
-
-        # Construction du DataFrame final dès que la boucle est finie ou stoppée
-        if not st.session_state.extraction_en_cours:
+            
+            # Construction du DataFrame final
             metiers_data = st.session_state.metiers_data_all
             df_all_fipu  = create_enriched_df(metiers_data) if metiers_data else pd.DataFrame()
             st.session_state.df_all_fipu = df_all_fipu
@@ -391,8 +400,7 @@ with tab_all:
             progress_text_full.text(
                 f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs."
             )
-            st.rerun()
-
+            st.rerun()  # Rafraîchit pour afficher les résultats finaux
 
     # ── Affichage des résultats persistants ───────────────────────────────────
     df_all_fipu = st.session_state.df_all_fipu
@@ -406,7 +414,10 @@ with tab_all:
             nb_err  = len(statuts_all) - nb_ok
             nb_fipu = (df_all_fipu['FIPU'] == 'OUI').sum() if 'FIPU' in df_all_fipu.columns else 0
 
-            st.success(f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs.")
+            if st.session_state.extraction_done:
+                st.success(f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs.")
+            elif not st.session_state.extraction_en_cours:
+                st.warning(f"⛔ Extraction arrêtée — {nb_ok} métiers récupérés, {nb_err} erreurs.")
 
             col_a, col_b, col_c = st.columns(3)
             col_a.metric("Métiers récupérés", nb_ok)
