@@ -292,23 +292,21 @@ with tab_all:
         "les horaires et le statut FIPU. L'opération peut prendre plusieurs minutes."
     )
 
-    # Initialisation du session_state
+    # 1. Initialisation du session_state
     for key, default in [
-        ("stop_full",           False),
+        ("stop_full",        False),
         ("extraction_en_cours", False),
-        ("df_all_fipu",         None),
-        ("statuts_all",         []),
-        ("metiers_data_all",    []),
-        ("all_codes",           []),
-        ("extraction_done",     False),
-        ("start_clicked",       False),  # Nouveau flag
+        ("df_all_fipu",      None),
+        ("statuts_all",      []),
+        ("metiers_data_all", []),
+        ("all_codes",        []),
+        ("extraction_done",  False),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
 
-    # Callback pour le bouton START
-    def start_extraction():
-        st.session_state.start_clicked = True
+    # 2. DÉFINITION DES CALLBACKS (Ils s'exécuteront avant le rendu de l'interface)
+    def on_start_extraction():
         st.session_state.stop_full = False
         st.session_state.extraction_en_cours = True
         st.session_state.extraction_done = False
@@ -317,51 +315,51 @@ with tab_all:
         st.session_state.metiers_data_all = []
         st.session_state.all_codes = []
 
-    # Callback pour le bouton STOP
-    def stop_extraction():
+    def on_stop_extraction():
         st.session_state.stop_full = True
 
+    # 3. AFFICHAGE DES BOUTONS (Liés aux callbacks via on_click)
     col1, col2 = st.columns(2)
     with col1:
-        st.button("🚀 Lancer l'extraction complète", 
-                 key="btn_start_full",
-                 on_click=start_extraction,
-                 disabled=st.session_state.extraction_en_cours)
+        st.button("🚀 Lancer l'extraction complète", key="btn_start_full",
+                  disabled=st.session_state.extraction_en_cours,
+                  on_click=on_start_extraction)
     with col2:
-        st.button("⛔ STOP", 
-                 type="primary", 
-                 key="btn_stop_full",
-                 on_click=stop_extraction,
-                 disabled=not st.session_state.extraction_en_cours)
+        st.button("⛔ STOP", type="primary", key="btn_stop_full",
+                  disabled=not st.session_state.extraction_en_cours,
+                  on_click=on_stop_extraction)
 
-    # Si on vient de cliquer sur START, on récupère d'abord les codes
-    if st.session_state.start_clicked and not st.session_state.all_codes:
-        st.session_state.start_clicked = False  # Réinitialise le flag
+    # 4. LOGIQUE D'EXTRACTION
+    
+    # Si on vient de lancer l'extraction et qu'on n'a pas encore les codes
+    if st.session_state.extraction_en_cours and not st.session_state.all_codes:
         try:
             with st.spinner("Récupération de la liste de tous les codes ROME…"):
                 st.session_state.all_codes = get_all_rome_codes()
         except Exception as e:
             st.error(f"Erreur lors de la récupération des codes ROME : {e}")
             st.session_state.extraction_en_cours = False
-            st.session_state.df_all_fipu = pd.DataFrame()
 
-    # Traitement des métiers (un seul à la fois par cycle)
+    # Boucle de traitement (s'exécute tant que l'extraction est en cours)
     if st.session_state.extraction_en_cours and st.session_state.all_codes:
         all_codes = st.session_state.all_codes
-        total = len(all_codes)
+        total     = len(all_codes)
         done_so_far = len(st.session_state.statuts_all)
 
-        # Affiche la progression
-        progress_bar_full = st.progress(done_so_far / total if total else 0)
-        status_text = st.empty()
-        
-        if done_so_far < total and not st.session_state.stop_full:
-            status_text.info(f"🔄 Traitement en cours… {done_so_far + 1} / {total}")
-            
-            # Traite UN SEUL code à la fois
-            code_rome = all_codes[done_so_far]
+        st.info(f"🔄 {total} codes ROME — traitement en cours…")
+        progress_bar_full  = st.progress(done_so_far / total if total > 0 else 0)
+        progress_text_full = st.empty()
+
+        for i in range(done_so_far, total):
+            # Vérification du bouton STOP
+            if st.session_state.stop_full:
+                st.session_state.extraction_en_cours = False
+                progress_text_full.text(f"⛔ Arrêté à {i} / {total} codes traités.")
+                break
+
+            code_rome = all_codes[i]
             try:
-                metier = get_metier(code_rome)
+                metier  = get_metier(code_rome)
                 libelle = metier.get('libelle', 'Sans libellé')
                 st.session_state.metiers_data_all.append(metier)
                 st.session_state.statuts_all.append(
@@ -375,66 +373,61 @@ with tab_all:
                 st.session_state.statuts_all.append(
                     {'code': code_rome, 'libelle': f'Erreur: {str(e)[:30]}…', 'success': False}
                 )
-            
-            # Force le rafraîchissement pour traiter le prochain code
-            # et permettre au bouton STOP d'être cliqué entre chaque traitement
-            import time
-            time.sleep(0.1)  # Petit délai pour éviter de surcharger
-            st.rerun()
-        
-        elif st.session_state.stop_full or done_so_far >= total:
-            # Extraction terminée ou stoppée
+
+            progress_bar_full.progress((i + 1) / total)
+            progress_text_full.text(f"{i + 1} / {total} codes traités…")
+
+        else:
+            # Boucle terminée normalement (pas de break)
             st.session_state.extraction_en_cours = False
-            
-            if done_so_far >= total:
-                st.session_state.extraction_done = True
-            
-            # Construction du DataFrame
+            st.session_state.extraction_done     = True
+
+        # Construction du DataFrame final dès que la boucle est finie ou stoppée
+        if not st.session_state.extraction_en_cours:
             metiers_data = st.session_state.metiers_data_all
-            df_all_fipu = create_enriched_df(metiers_data) if metiers_data else pd.DataFrame()
+            df_all_fipu  = create_enriched_df(metiers_data) if metiers_data else pd.DataFrame()
             st.session_state.df_all_fipu = df_all_fipu
             
-            nb_ok = sum(1 for s in st.session_state.statuts_all if s.get('success'))
+            nb_ok  = sum(1 for s in st.session_state.statuts_all if s.get('success'))
             nb_err = len(st.session_state.statuts_all) - nb_ok
-            
-            if st.session_state.extraction_done:
-                status_text.success(f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs.")
-            else:
-                status_text.warning(f"⛔ Extraction arrêtée — {nb_ok} métiers récupérés, {nb_err} erreurs.")
-            
+            progress_text_full.text(
+                f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs."
+            )
             st.rerun()
 
-    # ── Affichage des résultats ───────────────────────────────────────────────
+    # ── Affichage des résultats persistants ───────────────────────────────────
     df_all_fipu = st.session_state.df_all_fipu
     statuts_all = st.session_state.statuts_all
 
-    if df_all_fipu is not None and not df_all_fipu.empty:
-        nb_ok = sum(1 for s in statuts_all if s.get('success'))
-        nb_err = len(statuts_all) - nb_ok
-        nb_fipu = (df_all_fipu['FIPU'] == 'OUI').sum() if 'FIPU' in df_all_fipu.columns else 0
+    if df_all_fipu is not None:
+        if df_all_fipu.empty:
+            st.warning("Aucun métier récupéré.")
+        else:
+            nb_ok   = sum(1 for s in statuts_all if s.get('success'))
+            nb_err  = len(statuts_all) - nb_ok
+            nb_fipu = (df_all_fipu['FIPU'] == 'OUI').sum() if 'FIPU' in df_all_fipu.columns else 0
 
-        col_a, col_b, col_c = st.columns(3)
-        col_a.metric("Métiers récupérés", nb_ok)
-        col_b.metric("Erreurs / non trouvés", nb_err)
-        col_c.metric("Métiers FIPU (OUI)", nb_fipu)
+            st.success(f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs.")
 
-        st.dataframe(df_all_fipu, use_container_width=True, height=500)
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("Métiers récupérés", nb_ok)
+            col_b.metric("Erreurs / non trouvés", nb_err)
+            col_c.metric("Métiers FIPU (OUI)", nb_fipu)
 
-        excel_bytes = to_excel_bytes(df_all_fipu, sheet_name="Tous_ROME_FIPU")
-        st.download_button(
-            label=f"📥 Télécharger les résultats (.xlsx) — {len(df_all_fipu)} métiers",
-            data=excel_bytes,
-            file_name=f"ROME_tous_metiers_FIPU_{len(df_all_fipu)}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True,
-        )
+            st.dataframe(df_all_fipu, use_container_width=True, height=500)
 
-        if nb_err > 0:
-            with st.expander(f"⚠️ {nb_err} code(s) en erreur"):
-                for s in statuts_all:
-                    if not s.get('success'):
-                        st.markdown(f"- **{s['code']}** — {s['libelle']}")
-    
-    elif df_all_fipu is not None and df_all_fipu.empty:
-        st.warning("Aucun métier récupéré.")
+            excel_bytes = to_excel_bytes(df_all_fipu, sheet_name="Tous_ROME_FIPU")
+            st.download_button(
+                label=f"📥 Télécharger les résultats (.xlsx) — {len(df_all_fipu)} métiers",
+                data=excel_bytes,
+                file_name=f"ROME_tous_metiers_FIPU_{len(df_all_fipu)}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+            )
+
+            if nb_err > 0:
+                with st.expander(f"⚠️ {nb_err} code(s) en erreur"):
+                    for s in statuts_all:
+                        if not s.get('success'):
+                            st.markdown(f"- **{s['code']}** — {s['libelle']}")
