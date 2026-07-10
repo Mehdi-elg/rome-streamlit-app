@@ -100,12 +100,13 @@ def is_fipu(conditions_str: str, horaires_str: str) -> bool:
 
 
 def create_enriched_df(metiers_data):
-    SEP = " ; "
     rows = []
     for metier in metiers_data:
         flat       = flatten_dict(metier)
         conditions = get_contextes_by_categorie(metier, "CONDITIONS_TRAVAIL")
         horaires   = get_contextes_by_categorie(metier, "HORAIRE_ET_DUREE_TRAVAIL")
+        # Séparateur peu susceptible d'apparaître dans un libellé
+        SEP = " | "
         cond_str   = SEP.join(conditions) if conditions else ''
         hor_str    = SEP.join(horaires)   if horaires   else ''
         flat['Conditions de travail et risques professionnels'] = cond_str
@@ -243,30 +244,26 @@ with tab_list:
             code_rome = statut['code']
             libelle   = statut['libelle']
             if statut.get('success'):
-                metier_data    = statut['metier_data']
-                conditions     = get_contextes_by_categorie(metier_data, "CONDITIONS_TRAVAIL")
-                horaires       = get_contextes_by_categorie(metier_data, "HORAIRE_ET_DUREE_TRAVAIL")
-                SEP            = " ; "
-                cond_str       = SEP.join(conditions)
-                hor_str        = SEP.join(horaires)
-                fipu_oui       = is_fipu(cond_str, hor_str)
+                metier_data = statut['metier_data']
+                conditions_list = get_contextes_by_categorie(metier_data, "CONDITIONS_TRAVAIL")
+                horaires_list   = get_contextes_by_categorie(metier_data, "HORAIRE_ET_DUREE_TRAVAIL")
+                cond_str = ' | '.join(conditions_list)
+                hor_str  = ' | '.join(horaires_list)
+                fipu_oui = is_fipu(cond_str, hor_str)
 
                 st.success(f"✅ **{libelle}** ({code_rome})")
-                if fipu_oui:
-                    st.success("**FIPU : OUI** ✅")
-                else:
-                    st.error("**FIPU : NON** ❌")
+                st.success("**FIPU : OUI** ✅") if fipu_oui else st.error("**FIPU : NON** ❌")
 
                 st.markdown("**🏭 Conditions de travail et risques professionnels :**")
-                if conditions:
-                    for item in conditions:
+                if conditions_list:
+                    for item in conditions_list:
                         st.markdown(f"- {item}")
                 else:
                     st.markdown("*Aucune condition trouvée*")
 
                 st.markdown("**⏰ Horaires et durée du travail :**")
-                if horaires:
-                    for item in horaires:
+                if horaires_list:
+                    for item in horaires_list:
                         st.markdown(f"- {item}")
                 else:
                     st.markdown("*Aucun horaire spécifique trouvé*")
