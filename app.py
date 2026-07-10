@@ -292,7 +292,7 @@ with tab_all:
         "les horaires et le statut FIPU. L'opération peut prendre plusieurs minutes."
     )
 
-    # 1. Initialisation du session_state
+    # Initialisation du session_state
     for key, default in [
         ("stop_full",        False),
         ("extraction_en_cours", False),
@@ -305,34 +305,27 @@ with tab_all:
         if key not in st.session_state:
             st.session_state[key] = default
 
-    # 2. DÉFINITION DES CALLBACKS (Ils s'exécuteront avant le rendu de l'interface)
-    def on_start_extraction():
-        st.session_state.stop_full = False
-        st.session_state.extraction_en_cours = True
-        st.session_state.extraction_done = False
-        st.session_state.df_all_fipu = None
-        st.session_state.statuts_all = []
-        st.session_state.metiers_data_all = []
-        st.session_state.all_codes = []
-
-    def on_stop_extraction():
-        st.session_state.stop_full = True
-
-    # 3. AFFICHAGE DES BOUTONS (Liés aux callbacks via on_click)
     col1, col2 = st.columns(2)
     with col1:
-        st.button("🚀 Lancer l'extraction complète", key="btn_start_full",
-                  disabled=st.session_state.extraction_en_cours,
-                  on_click=on_start_extraction)
+        start_full = st.button("🚀 Lancer l'extraction complète", key="btn_start_full",
+                               disabled=st.session_state.extraction_en_cours)
     with col2:
-        st.button("⛔ STOP", type="primary", key="btn_stop_full",
-                  disabled=not st.session_state.extraction_en_cours,
-                  on_click=on_stop_extraction)
+        stop_full = st.button("⛔ STOP", type="primary", key="btn_stop_full",
+                              disabled=not st.session_state.extraction_en_cours)
 
-    # 4. LOGIQUE D'EXTRACTION
-    
-    # Si on vient de lancer l'extraction et qu'on n'a pas encore les codes
-    if st.session_state.extraction_en_cours and not st.session_state.all_codes:
+    if stop_full:
+        st.session_state.stop_full = True
+
+    if start_full:
+        # Remise à zéro
+        st.session_state.stop_full          = False
+        st.session_state.extraction_en_cours = True
+        st.session_state.extraction_done    = False
+        st.session_state.df_all_fipu        = None
+        st.session_state.statuts_all        = []
+        st.session_state.metiers_data_all   = []
+        st.session_state.all_codes          = []
+
         try:
             with st.spinner("Récupération de la liste de tous les codes ROME…"):
                 st.session_state.all_codes = get_all_rome_codes()
@@ -347,11 +340,10 @@ with tab_all:
         done_so_far = len(st.session_state.statuts_all)
 
         st.info(f"🔄 {total} codes ROME — traitement en cours…")
-        progress_bar_full  = st.progress(done_so_far / total if total > 0 else 0)
+        progress_bar_full  = st.progress(done_so_far / total if total else 0)
         progress_text_full = st.empty()
 
         for i in range(done_so_far, total):
-            # Vérification du bouton STOP
             if st.session_state.stop_full:
                 st.session_state.extraction_en_cours = False
                 progress_text_full.text(f"⛔ Arrêté à {i} / {total} codes traités.")
@@ -387,7 +379,6 @@ with tab_all:
             metiers_data = st.session_state.metiers_data_all
             df_all_fipu  = create_enriched_df(metiers_data) if metiers_data else pd.DataFrame()
             st.session_state.df_all_fipu = df_all_fipu
-            
             nb_ok  = sum(1 for s in st.session_state.statuts_all if s.get('success'))
             nb_err = len(st.session_state.statuts_all) - nb_ok
             progress_text_full.text(
