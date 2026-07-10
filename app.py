@@ -317,45 +317,69 @@ with tab_all:
         st.session_state.stop_full = True
 
     if start_full:
-        st.session_state.stop_full = False
+        # Remise à zéro
+        st.session_state.stop_full          = False
         st.session_state.extraction_en_cours = True
-        ...
-        st.session_state.all_codes = get_all_rome_codes()
-        st.rerun()   # rerun immédiat pour rafraîchir l'état des boutons avant la boucle
-    
+        st.session_state.extraction_done    = False
+        st.session_state.df_all_fipu        = None
+        st.session_state.statuts_all        = []
+        st.session_state.metiers_data_all   = []
+        st.session_state.all_codes          = []
+
+        st.rerun()
+
+
+    if st.session_state.extraction_en_cours and not st.session_state.all_codes:
+        try:
+            with st.spinner("Récupération de la liste de tous les codes ROME…"):
+                st.session_state.all_codes = get_all_rome_codes()
+                # Pas de st.rerun() ici, on continue sur la boucle plus bas
+        except Exception as e:
+            st.error(f"Erreur lors de la récupération des codes ROME : {e}")
+            st.session_state.extraction_en_cours = False
+            st.rerun()  # <-- AJOUTÉ : pour réafficher l'interface avec le bouton START réactivé
+
     # Boucle de traitement (s'exécute tant que l'extraction est en cours)
-
-    BATCH_SIZE = 15
-
     if st.session_state.extraction_en_cours and st.session_state.all_codes:
         all_codes = st.session_state.all_codes
-        total = len(all_codes)
+        total     = len(all_codes)
         done_so_far = len(st.session_state.statuts_all)
 
         st.info(f"🔄 {total} codes ROME — traitement en cours…")
-        st.progress(done_so_far / total if total else 0)
+        progress_bar_full  = st.progress(done_so_far / total if total else 0)
+        progress_text_full = st.empty()
 
-        if st.session_state.stop_full:
-            st.session_state.extraction_en_cours = False
-        else:
-            end = min(done_so_far + BATCH_SIZE, total)
-            for i in range(done_so_far, end):
-                code_rome = all_codes[i]
-                try:
-                    metier = get_metier(code_rome)
-                    st.session_state.metiers_data_all.append(metier)
-                    st.session_state.statuts_all.append(
-                        {'code': code_rome, 'libelle': metier.get('libelle', 'Sans libellé'), 'success': True}
-                    )
-                except Exception as e:
-                    st.session_state.statuts_all.append(
-                        {'code': code_rome, 'libelle': f'Erreur: {str(e)[:30]}…', 'success': False}
-                    )
-            if end >= total:
+        for i in range(done_so_far, total):
+            if st.session_state.stop_full:
                 st.session_state.extraction_en_cours = False
-                st.session_state.extraction_done = True
-            else:
-                st.rerun()   # redonne la main → boutons rafraîchis, STOP cliquable entre les lots
+                st.session_state.stop_full = False
+                progress_text_full.text(f"⛔ Arrêté à {i} / {total} codes traités.")
+                break
+
+            code_rome = all_codes[i]
+            try:
+                metier  = get_metier(code_rome)
+                libelle = metier.get('libelle', 'Sans libellé')
+                st.session_state.metiers_data_all.append(metier)
+                st.session_state.statuts_all.append(
+                    {'code': code_rome, 'libelle': libelle, 'success': True}
+                )
+            except requests.HTTPError:
+                st.session_state.statuts_all.append(
+                    {'code': code_rome, 'libelle': 'Non trouvé', 'success': False}
+                )
+            except Exception as e:
+                st.session_state.statuts_all.append(
+                    {'code': code_rome, 'libelle': f'Erreur: {str(e)[:30]}…', 'success': False}
+                )
+
+            progress_bar_full.progress((i + 1) / total)
+            progress_text_full.text(f"{i + 1} / {total} codes traités…")
+
+        else:
+            # Boucle terminée normalement (pas de break)
+            st.session_state.extraction_en_cours = False
+            st.session_state.extraction_done     = True
 
         # Construction du DataFrame final dès que la boucle est finie ou stoppée
         if not st.session_state.extraction_en_cours:
@@ -368,6 +392,7 @@ with tab_all:
                 f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs."
             )
             st.rerun()
+
 
     # ── Affichage des résultats persistants ───────────────────────────────────
     df_all_fipu = st.session_state.df_all_fipu
