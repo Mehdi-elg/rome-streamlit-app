@@ -251,22 +251,15 @@ with tab_list:
                     st.success("**FIPU : OUI** ✅")
                 else:
                     st.error("**FIPU : NON** ❌")
-                conditions = get_contextes_by_categorie(metier_data, "CONDITIONS_TRAVAIL")
-                horaires   = get_contextes_by_categorie(metier_data, "HORAIRE_ET_DUREE_TRAVAIL")
-                cond_str   = ', '.join(conditions)
-                hor_str    = ', '.join(horaires)
-                fipu_oui   = is_fipu(cond_str, hor_str)
-
                 st.markdown("**🏭 Conditions de travail et risques professionnels :**")
-                if conditions:
-                    for item in conditions:          # boucle sur la liste, pas sur un split de chaîne
+                if cond_str:
+                    for item in cond_str.split(', '):
                         st.markdown(f"- {item}")
                 else:
                     st.markdown("*Aucune condition trouvée*")
-
                 st.markdown("**⏰ Horaires et durée du travail :**")
-                if horaires:
-                    for item in horaires:            # idem
+                if hor_str:
+                    for item in hor_str.split(', '):
                         st.markdown(f"- {item}")
                 else:
                     st.markdown("*Aucun horaire spécifique trouvé*")
