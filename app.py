@@ -18,6 +18,9 @@ if 'search_done' not in st.session_state:
     st.session_state.statuts = []
     st.session_state.codes_list = []
 
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
 def get_token():
     data = {
         "grant_type":    "client_credentials",
@@ -28,6 +31,9 @@ def get_token():
     r = requests.post(TOKEN_URL, data=data)
     r.raise_for_status()
     return r.json()["access_token"]
+
+
+# ── ROME métier ───────────────────────────────────────────────────────────────
 
 def get_metier(code_rome):
     token = get_token()
@@ -126,13 +132,18 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Metiers_ROME") -> bytes:
     buf.seek(0)
     return buf.getvalue()
 
+
+# ── Référentiel ROME (pour l'extraction complète) ─────────────────────────────
+
 def get_all_rome_codes():
+    """Récupère la liste de tous les codes ROME existants."""
     token   = get_token()
     headers = {"Authorization": f"Bearer {token}"}
     url     = f"{API_BASE}/v1/metiers/metier"
     r = requests.get(url, headers=headers)
     r.raise_for_status()
     data = r.json()
+    # L'API renvoie soit une liste directe, soit un objet avec une clé
     items = data if isinstance(data, list) else data.get("metiers", data.get("results", []))
     codes = []
     for item in items:
@@ -141,15 +152,18 @@ def get_all_rome_codes():
             codes.append(code)
     return codes
 
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+
 st.title("🔎 Recherche Multi-Métiers ROME")
 
 tab_list, tab_all = st.tabs(
     ["Recherche par liste de codes ROME", "Extraction complète (tous les ROME)"]
 )
 
-
-# ONGLET 1 — Recherche ciblée
-
+# ══════════════════════════════════════════════════════════════════════════════
+# ONGLET 1 — Recherche ciblée (code d'origine, inchangé)
+# ══════════════════════════════════════════════════════════════════════════════
 with tab_list:
     st.markdown("**Entrez plusieurs codes ROME (1 par ligne) et consultez les résultats détaillés**")
 
@@ -267,80 +281,112 @@ with tab_list:
         st.code("A1413\nM1805\nH1203\nK2110", language="text")
 
 
-# ONGLET 2 — Extraction complète
-
-
+# ══════════════════════════════════════════════════════════════════════════════
+# ONGLET 2 — Extraction complète (tous les ROME disponibles)
+# ══════════════════════════════════════════════════════════════════════════════
 with tab_all:
     st.subheader("Extraction complète de tous les métiers ROME disponibles")
     st.markdown(
         "Cet onglet récupère **tous les codes ROME** exposés par l'API, "
         "puis interroge chaque fiche métier pour en extraire les conditions de travail, "
-        "les horaires et le statut FIPU. Sa peut être très long."
+        "les horaires et le statut FIPU. L'opération peut prendre plusieurs minutes."
     )
 
-    if "stop_full" not in st.session_state:
-        st.session_state.stop_full = False
-    if "df_all_fipu" not in st.session_state:
-        st.session_state.df_all_fipu = None
-    if "statuts_all" not in st.session_state:
-        st.session_state.statuts_all = []
+    # Initialisation du session_state
+    for key, default in [
+        ("stop_full",        False),
+        ("extraction_en_cours", False),
+        ("df_all_fipu",      None),
+        ("statuts_all",      []),
+        ("metiers_data_all", []),
+        ("all_codes",        []),
+        ("extraction_done",  False),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = default
 
     col1, col2 = st.columns(2)
     with col1:
-        start_full = st.button("Lancer l'extraction complète", key="btn_start_full")
+        start_full = st.button("🚀 Lancer l'extraction complète", key="btn_start_full",
+                               disabled=st.session_state.extraction_en_cours)
     with col2:
-        stop_full = st.button("STOP", type="primary", key="btn_stop_full")
+        stop_full = st.button("⛔ STOP", type="primary", key="btn_stop_full",
+                              disabled=not st.session_state.extraction_en_cours)
 
     if stop_full:
         st.session_state.stop_full = True
 
-    progress_text_full = st.empty()
-    progress_bar_full  = st.progress(0)
-
     if start_full:
-        st.session_state.stop_full   = False
-        st.session_state.df_all_fipu = None
-        st.session_state.statuts_all = []
+        # Remise à zéro
+        st.session_state.stop_full          = False
+        st.session_state.extraction_en_cours = True
+        st.session_state.extraction_done    = False
+        st.session_state.df_all_fipu        = None
+        st.session_state.statuts_all        = []
+        st.session_state.metiers_data_all   = []
+        st.session_state.all_codes          = []
 
-        with st.spinner("Récupération de la liste de tous les codes ROME…"):
+        try:
+            with st.spinner("Récupération de la liste de tous les codes ROME…"):
+                st.session_state.all_codes = get_all_rome_codes()
+        except Exception as e:
+            st.error(f"Erreur lors de la récupération des codes ROME : {e}")
+            st.session_state.extraction_en_cours = False
+
+    # Boucle de traitement (s'exécute tant que l'extraction est en cours)
+    if st.session_state.extraction_en_cours and st.session_state.all_codes:
+        all_codes = st.session_state.all_codes
+        total     = len(all_codes)
+        done_so_far = len(st.session_state.statuts_all)
+
+        st.info(f"🔄 {total} codes ROME — traitement en cours…")
+        progress_bar_full  = st.progress(done_so_far / total if total else 0)
+        progress_text_full = st.empty()
+
+        for i in range(done_so_far, total):
+            if st.session_state.stop_full:
+                st.session_state.extraction_en_cours = False
+                progress_text_full.text(f"⛔ Arrêté à {i} / {total} codes traités.")
+                break
+
+            code_rome = all_codes[i]
             try:
-                all_codes = get_all_rome_codes()
+                metier  = get_metier(code_rome)
+                libelle = metier.get('libelle', 'Sans libellé')
+                st.session_state.metiers_data_all.append(metier)
+                st.session_state.statuts_all.append(
+                    {'code': code_rome, 'libelle': libelle, 'success': True}
+                )
+            except requests.HTTPError:
+                st.session_state.statuts_all.append(
+                    {'code': code_rome, 'libelle': 'Non trouvé', 'success': False}
+                )
             except Exception as e:
-                st.error(f"Erreur lors de la récupération des codes ROME : {e}")
-                all_codes = []
+                st.session_state.statuts_all.append(
+                    {'code': code_rome, 'libelle': f'Erreur: {str(e)[:30]}…', 'success': False}
+                )
 
-        if all_codes:
-            st.info(f"🔄 {len(all_codes)} codes ROME trouvés — démarrage du traitement…")
-            total         = len(all_codes)
-            metiers_data  = []
-            statuts_all   = []
+            progress_bar_full.progress((i + 1) / total)
+            progress_text_full.text(f"{i + 1} / {total} codes traités…")
 
-            for i, code_rome in enumerate(all_codes):
-                if st.session_state.stop_full:
-                    progress_text_full.text(f"⛔ Arrêté à {i} / {total} codes traités.")
-                    break
-                try:
-                    metier  = get_metier(code_rome)
-                    libelle = metier.get('libelle', 'Sans libellé')
-                    metiers_data.append(metier)
-                    statuts_all.append({'code': code_rome, 'libelle': libelle, 'success': True})
-                except requests.HTTPError:
-                    statuts_all.append({'code': code_rome, 'libelle': 'Non trouvé', 'success': False})
-                except Exception as e:
-                    statuts_all.append({'code': code_rome, 'libelle': f'Erreur: {str(e)[:30]}…', 'success': False})
+        else:
+            # Boucle terminée normalement (pas de break)
+            st.session_state.extraction_en_cours = False
+            st.session_state.extraction_done     = True
 
-                progress_bar_full.progress((i + 1) / total)
-                progress_text_full.text(f"{i + 1} / {total} codes traités…")
-
-            df_all_fipu = create_enriched_df(metiers_data) if metiers_data else pd.DataFrame()
+        # Construction du DataFrame final dès que la boucle est finie ou stoppée
+        if not st.session_state.extraction_en_cours:
+            metiers_data = st.session_state.metiers_data_all
+            df_all_fipu  = create_enriched_df(metiers_data) if metiers_data else pd.DataFrame()
             st.session_state.df_all_fipu = df_all_fipu
-            st.session_state.statuts_all = statuts_all
-            nb_ok  = sum(1 for s in statuts_all if s.get('success'))
-            nb_err = len(statuts_all) - nb_ok
+            nb_ok  = sum(1 for s in st.session_state.statuts_all if s.get('success'))
+            nb_err = len(st.session_state.statuts_all) - nb_ok
             progress_text_full.text(
-                f"Extraction terminée ou stoppée — {nb_ok} métiers récupérés, {nb_err} erreurs."
+                f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs."
             )
+            st.rerun()
 
+    # ── Affichage des résultats persistants ───────────────────────────────────
     df_all_fipu = st.session_state.df_all_fipu
     statuts_all = st.session_state.statuts_all
 
@@ -348,9 +394,11 @@ with tab_all:
         if df_all_fipu.empty:
             st.warning("Aucun métier récupéré.")
         else:
-            nb_ok  = sum(1 for s in statuts_all if s.get('success'))
-            nb_err = len(statuts_all) - nb_ok
+            nb_ok   = sum(1 for s in statuts_all if s.get('success'))
+            nb_err  = len(statuts_all) - nb_ok
             nb_fipu = (df_all_fipu['FIPU'] == 'OUI').sum() if 'FIPU' in df_all_fipu.columns else 0
+
+            st.success(f"✅ Extraction terminée — {nb_ok} métiers récupérés, {nb_err} erreurs.")
 
             col_a, col_b, col_c = st.columns(3)
             col_a.metric("Métiers récupérés", nb_ok)
@@ -361,7 +409,7 @@ with tab_all:
 
             excel_bytes = to_excel_bytes(df_all_fipu, sheet_name="Tous_ROME_FIPU")
             st.download_button(
-                label=f"📥 Télécharger les résultats actuels (.xlsx) — {len(df_all_fipu)} métiers",
+                label=f"📥 Télécharger les résultats (.xlsx) — {len(df_all_fipu)} métiers",
                 data=excel_bytes,
                 file_name=f"ROME_tous_metiers_FIPU_{len(df_all_fipu)}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
