@@ -60,7 +60,7 @@ def get_session() -> requests.Session:
 
 def get_token() -> str:
     """Récupère un token OAuth2 et le met en cache tant qu'il est valide."""
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     token = st.session_state.get("api_token")
     expiry = st.session_state.get("api_token_expiry")
     if token and expiry and now < expiry:
