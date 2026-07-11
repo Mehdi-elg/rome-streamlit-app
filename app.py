@@ -1,10 +1,9 @@
-
 import streamlit as st
 import requests
 import pandas as pd
 import io
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -60,7 +59,7 @@ def get_session() -> requests.Session:
 
 def get_token() -> str:
     """Récupère un token OAuth2 et le met en cache tant qu'il est valide."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     token = st.session_state.get("api_token")
     expiry = st.session_state.get("api_token_expiry")
     if token and expiry and now < expiry:
@@ -237,6 +236,7 @@ def styled_preview(df: pd.DataFrame):
         if val == "Non":
             return "background-color: #FFC7CE; color: #9C0006; font-weight: 600;"
         return ""
+    # CHANGEMENT PANDAS 3.0: Remplacement de applymap() par map()
     styler = df.style.map(highlight_fipu, subset=["FIPU"]) if "FIPU" in df.columns else df.style
     st.dataframe(styler, use_container_width=True, height=min(45 + 35 * len(df), 600))
 
