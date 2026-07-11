@@ -60,7 +60,7 @@ def get_session() -> requests.Session:
 
 def get_token() -> str:
     """Récupère un token OAuth2 et le met en cache tant qu'il est valide."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     token = st.session_state.get("api_token")
     expiry = st.session_state.get("api_token_expiry")
     if token and expiry and now < expiry:
@@ -237,7 +237,7 @@ def styled_preview(df: pd.DataFrame):
         if val == "Non":
             return "background-color: #FFC7CE; color: #9C0006; font-weight: 600;"
         return ""
-    styler = df.style.applymap(highlight_fipu, subset=["FIPU"]) if "FIPU" in df.columns else df.style
+    styler = df.style.map(highlight_fipu, subset=["FIPU"]) if "FIPU" in df.columns else df.style
     st.dataframe(styler, use_container_width=True, height=min(45 + 35 * len(df), 600))
 
 
