@@ -42,7 +42,7 @@ CRITERES_FIPU = [
 CRITERES_FIPU_LOWER = [c.lower() for c in CRITERES_FIPU]
 
 SEPARATEUR = " ; "
-CHUNK_SIZE_FULL = 25          # nb de codes traités par "vague" dans l'onglet 2
+CHUNK_SIZE_FULL = 25
 MAX_RETRIES = 3
 TIMEOUT = 15
 
@@ -51,14 +51,12 @@ TIMEOUT = 15
 # ══════════════════════════════════════════════════════════════════════════
 
 def get_session() -> requests.Session:
-    """Session HTTP réutilisable (connexion garde-alive)."""
     if "http_session" not in st.session_state:
         st.session_state.http_session = requests.Session()
     return st.session_state.http_session
 
 
 def get_token() -> str:
-    """Récupère un token OAuth2 et le met en cache tant qu'il est valide."""
     now = datetime.now(timezone.utc)
     token = st.session_state.get("api_token")
     expiry = st.session_state.get("api_token_expiry")
@@ -78,13 +76,11 @@ def get_token() -> str:
     token = payload["access_token"]
     expires_in = payload.get("expires_in", 1500)
     st.session_state.api_token = token
-    # marge de sécurité de 60s avant expiration réelle
     st.session_state.api_token_expiry = now + timedelta(seconds=max(expires_in - 60, 30))
     return token
 
 
 def api_get(url: str, params: dict | None = None) -> requests.Response:
-    """GET authentifié avec retry automatique en cas d'échec réseau ou de token expiré."""
     session = get_session()
     last_exc = None
     for attempt in range(MAX_RETRIES):
@@ -93,7 +89,6 @@ def api_get(url: str, params: dict | None = None) -> requests.Response:
         try:
             r = session.get(url, headers=headers, params=params, timeout=TIMEOUT)
             if r.status_code == 401:
-                # token invalide -> on force son renouvellement puis on retente
                 st.session_state.api_token = None
                 continue
             r.raise_for_status()
@@ -113,7 +108,6 @@ def get_metier(code_rome: str) -> dict:
 
 
 def get_all_rome_codes() -> list[str]:
-    """Récupère la liste complète des codes ROME exposés par l'API."""
     url = f"{API_BASE}/metier"
     r = api_get(url)
     data = r.json()
@@ -141,7 +135,6 @@ def get_libelles_by_categorie(metier: dict, categorie: str) -> list[str]:
 
 
 def is_fipu(conditions: list[str], horaires: list[str]) -> bool:
-    """Règle de décision FIPU : au moins un libellé correspond à un critère FIPU."""
     texte = " ".join(conditions + horaires).lower()
     return any(c in texte for c in CRITERES_FIPU_LOWER)
 
@@ -159,8 +152,6 @@ def build_row(metier: dict) -> dict:
 
 
 def process_codes(codes: list[str], progress_bar, status_text, stop_check=None) -> tuple[list[dict], list[dict]]:
-    """Interroge l'API pour chaque code, met à jour la barre de progression.
-    Retourne (lignes_ok, erreurs)."""
     rows, errors = [], []
     total = len(codes)
     for i, code in enumerate(codes):
@@ -196,7 +187,6 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Resultats_ROME") -> byte
         df.to_excel(writer, sheet_name=sheet_name, index=False)
         ws = writer.sheets[sheet_name]
 
-        # En-têtes
         for col_idx, col_name in enumerate(df.columns, start=1):
             cell = ws.cell(row=1, column=col_idx)
             cell.fill = HEADER_FILL
@@ -229,14 +219,12 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Resultats_ROME") -> byte
 
 
 def styled_preview(df: pd.DataFrame):
-    """Aperçu coloré du tableau dans l'app (FIPU en couleur)."""
     def highlight_fipu(val):
         if val == "Oui":
             return "background-color: #C6EFCE; color: #006100; font-weight: 600;"
         if val == "Non":
             return "background-color: #FFC7CE; color: #9C0006; font-weight: 600;"
         return ""
-    # CHANGEMENT PANDAS 3.0: Remplacement de applymap() par map()
     styler = df.style.map(highlight_fipu, subset=["FIPU"]) if "FIPU" in df.columns else df.style
     st.dataframe(styler, use_container_width=True, height=min(45 + 35 * len(df), 600))
 
@@ -255,11 +243,11 @@ def parse_codes(raw_text: str) -> tuple[list[str], int]:
 # INTERFACE
 # ══════════════════════════════════════════════════════════════════════════
 
-st.title("🔎 Recherche Métiers ROME — Conditions, Horaires & FIPU")
+st.title("Recherche Métiers ROME — Conditions, Horaires & FIPU")
 
-tab_list, tab_all = st.tabs(["📋 Recherche par codes ROME", "🌐 Extraction complète"])
+tab_list, tab_all = st.tabs(["Recherche par codes ROME", "Extraction complète"])
 
-# ── ONGLET 1 ─────────────────────────────────────────────────────────────
+# ONGLET 1 
 with tab_list:
     st.markdown("Collez une liste de codes ROME (un code par ligne), puis lancez la recherche.")
 
@@ -270,10 +258,9 @@ with tab_list:
         key="tab1_input",
     )
 
-    launch = st.button("🔍 Lancer la recherche", type="primary", key="tab1_launch")
+    launch = st.button("Lancer la recherche", type="primary", key="tab1_launch")
 
     if launch:
-        # Réinitialisation systématique : l'ancien résultat disparaît immédiatement
         st.session_state.tab1_df = None
         st.session_state.tab1_errors = []
         st.session_state.tab1_excel = None
@@ -297,7 +284,6 @@ with tab_list:
             st.session_state.tab1_errors = errors
             st.session_state.tab1_total = len(codes)
 
-    # Affichage des résultats (uniquement si une recherche a réussi)
     if st.session_state.get("tab1_df") is not None:
         df1 = st.session_state.tab1_df
         errors1 = st.session_state.get("tab1_errors", [])
@@ -308,7 +294,7 @@ with tab_list:
         c2.metric("Résultats obtenus", len(df1))
         c3.metric("FIPU = Oui", int((df1["FIPU"] == "Oui").sum()))
 
-        st.subheader("📊 Résultats")
+        st.subheader("Résultats")
         styled_preview(df1)
 
         st.download_button(
@@ -327,7 +313,7 @@ with tab_list:
     with st.expander("💡 Exemple d'utilisation"):
         st.code("A1413\nM1805\nH1203\nK2110", language="text")
 
-# ── ONGLET 2 ─────────────────────────────────────────────────────────────
+# ONGLET 2
 with tab_all:
     st.markdown(
         "Récupère **tous les codes ROME** exposés par l'API puis interroge chaque fiche métier. "
@@ -350,7 +336,7 @@ with tab_all:
     c1, c2 = st.columns(2)
     with c1:
         start_full = st.button(
-            "🚀 Lancer la recherche complète",
+            "Lancer la recherche complète",
             type="primary",
             disabled=st.session_state.full_running,
             key="tab2_start",
@@ -376,7 +362,6 @@ with tab_all:
     if stop_full:
         st.session_state.full_stop = True
 
-    # Boucle de traitement par petits lots (permet au bouton STOP de réagir)
     if st.session_state.full_running:
         if not st.session_state.full_codes:
             with st.spinner("Récupération de la liste complète des codes ROME…"):
@@ -428,7 +413,6 @@ with tab_all:
                 time.sleep(0.05)
                 st.rerun()
 
-    # Affichage des résultats persistants (pendant et après la recherche)
     df_all = st.session_state.get("full_df")
     if df_all is not None:
         if df_all.empty:
@@ -445,7 +429,7 @@ with tab_all:
             cb.metric("Erreurs / non trouvés", nb_err)
             cc.metric("Métiers FIPU = Oui", nb_fipu)
 
-            st.subheader("📊 Résultats")
+            st.subheader("Résultats")
             styled_preview(df_all)
 
             st.download_button(
